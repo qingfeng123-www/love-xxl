@@ -428,7 +428,6 @@
             this.musicSources=[]; // 五首背景音乐列表
             this.currentMusicIndex=0;
             this.musicStarted=false;
-            this.musicLoadSuccess=false; // 音乐加载成功标志
             this.preloadImages();
             
             // 初始化完成后立即尝试启动音频，增加延迟确保资源加载完成
@@ -446,21 +445,17 @@
         preloadImages(){this.imagesLoadedCount=0; this.imagesFailedCount=0; this.totalImages=this.allColors.length; for(let i=0;i<this.totalImages;i++){const img=new Image(); img.onload=()=>{img.loaded=true; this.imagesLoadedCount++; this.checkImageLoadComplete();}; img.onerror=()=>{img.failed=true; this.imagesFailedCount++; this.checkImageLoadComplete();}; img.src='images/gem'+i+'.png?t='+(Date.now()); this.images[i]=img;} debugLog('加载宝石图片 '+this.totalImages+' 个'); }
         checkImageLoadComplete(){ if(this.imagesLoadedCount+this.imagesFailedCount>=this.totalImages){ debugLog('图片加载完成 成功:'+this.imagesLoadedCount+' 失败:'+this.imagesFailedCount); if(this.imagesLoadedCount===0) debugLog('全部失败，使用颜色替代'); } }
         initAudio(){
+            debugLog('开始初始化音频系统');
             const a={bg:document.getElementById('bgMusic'),pop:document.getElementById('popSound'),combo:document.getElementById('comboSound'),win:document.getElementById('winSound'),lose:document.getElementById('loseSound')};
-            if(a.bg){a.bg.preload='auto'; a.bg.volume=1.0; a.bg.loop=false;} // loop改由播放列表控制
+            if(a.bg){a.bg.preload='auto'; a.bg.volume=0.85; a.bg.loop=false;} // loop改由播放列表控制
             ['pop','combo','lose'].forEach(k=>{if(a[k]){a[k].preload='auto'; a[k].volume=0.7;}});
-            if(a.win){a.win.preload='auto'; a.win.volume=0.08;}
+            if(a.win){a.win.preload='auto'; a.win.volume=0.3;}
             
-            // 直接在初始化时加载音效包，无需用户点击
+            // 初始化音乐源列表
             const basePath='audio/9439/';
             const candidates=['bg1.mp3','bg2.mp3','bg3.mp3','bg4.mp3','bg5.mp3'];
             this.musicSources=candidates.map(n=>basePath+n);
-            
-            // 添加备用音乐源（以防主要音乐文件不存在）
-            const fallbackSources = [
-                'audio/9439/bg.mp3', // 备用单一背景音乐
-                'data:audio/mp3;base64,//uQxAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAACcQCA//////////////////////////////////////////8AAAAALGFuYwAAAA8AAAACAAACcQCA//////////////////////////////////////////8AAAAA' // 静音备用
-            ];
+            debugLog('音乐源列表已初始化: ' + this.musicSources.join(', '));
             
             // 立即加载所有音效文件
             const soundMap={pop:'pop',combo:'combo',win:'win',lose:'lose'};
@@ -471,164 +466,191 @@
                     el.load();
                     // 为音效添加错误处理
                     el.addEventListener('error', () => {
-                        debugLog('音效文件加载失败: ' + k);
-                        // 使用静音作为备用
-                        el.src = 'data:audio/mp3;base64,//uQxAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAACcQCA//////////////////////////////////////////8AAAAALGFuYwAAAA8AAAACAAACcQCA//////////////////////////////////////////8AAAAA';
+                        debugLog('音效文件加载失败: ' + k + '，使用默认音效');
                     });
                 }
             });
             
-            // 立即为背景音乐加载第一首歌，带错误处理
-            if(a.bg && this.musicSources.length > 0) {
-                this.loadBackgroundMusic(a.bg, 0, fallbackSources);
-            }
-            
-            // 绑定播放结束事件
+            // 绑定播放结束事件 - 实现播放列表循环
             if(a.bg){
-                a.bg.addEventListener('ended',()=>{
-                    if(this.isMuted) return;
-                    debugLog('当前音乐播放完毕，切换到下一首');
+                a.bg.addEventListener('ended', () => {
+                    if(this.isMuted || !this.isPlaying) {
+                        debugLog('音乐结束，但游戏未在运行或已静音');
+                        return;
+                    }
+                    
+                    // 切换到下一首音乐
                     this.currentMusicIndex = (this.currentMusicIndex + 1) % this.musicSources.length;
-                    a.bg.pause();
-                    a.bg.currentTime = 0;
+                    debugLog('音乐播放完毕，切换到第 ' + (this.currentMusicIndex + 1) + ' 首');
                     
-                    // 使用新的加载方法
-                    this.loadBackgroundMusic(a.bg, this.currentMusicIndex, [
-                        'audio/9439/bg.mp3',
-                        'data:audio/mp3;base64,//uQxAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAACcQCA//////////////////////////////////////////8AAAAALGFuYwAAAA8AAAACAAACcQCA//////////////////////////////////////////8AAAAA'
-                    ]);
-                    
-                    // 等待加载后播放
-                    setTimeout(() => {
-                        if(!this.isMuted && this.musicLoadSuccess) {
-                            a.bg.volume = 0.85;
-                            a.bg.play().catch((error) => {
-                                debugLog('下一首音乐播放失败: ' + error.message);
-                            });
-                        }
-                    }, 500);
+                    // 尝试播放下一首
+                    this.playNextMusic();
+                });
+                
+                // 监听加载错误，自动跳到下一首
+                a.bg.addEventListener('error', () => {
+                    debugLog('音乐加载失败，跳到下一首');
+                    this.currentMusicIndex = (this.currentMusicIndex + 1) % this.musicSources.length;
+                    this.playNextMusic();
                 });
             }
+            
+            debugLog('音频系统初始化完成');
             return a;
         }
-        // 背景音乐加载方法，带错误处理
-        loadBackgroundMusic(bgElement, sourceIndex = 0, fallbackSources = []) {
-            const allSources = [...this.musicSources, ...fallbackSources];
-            
-            if (sourceIndex >= allSources.length) {
-                debugLog('所有音乐源都加载失败，使用静音');
+        // 播放下一首音乐的方法
+        playNextMusic() {
+            if(!this.audio || !this.audio.bg || this.isMuted) {
+                debugLog('播放条件不满足: audio=' + !!this.audio + ', bg=' + !!(this.audio && this.audio.bg) + ', muted=' + this.isMuted);
                 return;
             }
             
-            const currentSource = allSources[sourceIndex] + '?t=' + (Date.now());
-            bgElement.src = currentSource;
-            debugLog('尝试加载背景音乐: ' + allSources[sourceIndex]);
+            // 确保musicSources已初始化
+            if(!this.musicSources || this.musicSources.length === 0) {
+                debugLog('音乐源列表为空，重新初始化');
+                const basePath = 'audio/9439/';
+                const candidates = ['bg1.mp3', 'bg2.mp3', 'bg3.mp3', 'bg4.mp3', 'bg5.mp3'];
+                this.musicSources = candidates.map(n => basePath + n);
+                this.currentMusicIndex = 0;
+            }
             
-            // 清除之前的事件监听器
-            bgElement.oncanplay = null;
-            bgElement.onerror = null;
+            // 确保索引有效
+            if(this.currentMusicIndex >= this.musicSources.length) {
+                this.currentMusicIndex = 0;
+            }
             
-            // 设置成功加载的回调
-            bgElement.addEventListener('canplay', () => {
-                debugLog('背景音乐加载成功: ' + allSources[sourceIndex]);
-                this.musicLoadSuccess = true;
-            }, {once: true});
+            const bg = this.audio.bg;
+            const currentSrc = this.musicSources[this.currentMusicIndex];
             
-            // 设置加载失败的回调
-            bgElement.addEventListener('error', () => {
-                debugLog('背景音乐加载失败: ' + allSources[sourceIndex] + '，尝试下一个');
-                this.loadBackgroundMusic(bgElement, sourceIndex + 1, fallbackSources);
-            }, {once: true});
+            if(!currentSrc) {
+                debugLog('当前音乐源为空，索引: ' + this.currentMusicIndex + ', 列表长度: ' + this.musicSources.length);
+                return;
+            }
             
-            bgElement.load();
+            debugLog('开始播放第 ' + (this.currentMusicIndex + 1) + ' 首音乐: ' + currentSrc);
+            
+            // 重置音频元素
+            bg.pause();
+            bg.currentTime = 0;
+            bg.src = currentSrc + '?t=' + Date.now();
+            
+            // 加载并播放
+            bg.load();
+            
+            const playWhenReady = () => {
+                if(!this.isMuted && this.isPlaying) {
+                    bg.volume = 0.85;
+                    bg.play().catch((error) => {
+                        debugLog('音乐播放失败: ' + error.message + '，跳到下一首');
+                        // 播放失败时跳到下一首
+                        setTimeout(() => {
+                            this.currentMusicIndex = (this.currentMusicIndex + 1) % this.musicSources.length;
+                            this.playNextMusic();
+                        }, 500);
+                    });
+                }
+            };
+            
+            // 监听加载完成事件
+            bg.addEventListener('canplay', playWhenReady, { once: true });
+            
+            // 设置超时，防止长时间等待
+            setTimeout(() => {
+                if(bg.readyState >= 2) { // HAVE_CURRENT_DATA
+                    playWhenReady();
+                }
+            }, 1000);
+        }
+        
+        // 背景音乐加载方法，带错误处理
+        loadBackgroundMusic(bgElement, sourceIndex = 0, fallbackSources = []) {
+            // 移除这个方法，使用更简单的playNextMusic
+            // 这个方法已被弃用
+            debugLog('loadBackgroundMusic方法已弃用，使用playNextMusic替代');
         }
 
         startMusicPlaylist(){
-            if(this.musicStarted||!this.audio||!this.audio.bg) return;
-            if(this.isMuted) return;
-            const bg=this.audio.bg;
-            this.currentMusicIndex=0;
-            
-            // 确保音频源已正确设置
-            if(!bg.src || bg.src.includes('data:audio')) {
-                debugLog('重新加载背景音乐源');
-                this.loadBackgroundMusic(bg, 0, [
-                    'audio/9439/bg.mp3',
-                    'data:audio/mp3;base64,//uQxAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAACcQCA//////////////////////////////////////////8AAAAALGFuYwAAAA8AAAACAAACcQCA//////////////////////////////////////////8AAAAA'
-                ]);
-                
-                // 等待加载完成后再尝试播放
-                setTimeout(() => this.attemptPlay(), 1000);
+            if(this.musicStarted || !this.audio || !this.audio.bg || this.isMuted) {
+                debugLog('音乐播放列表启动条件不满足: started=' + this.musicStarted + ', audio=' + !!this.audio + ', bg=' + !!(this.audio && this.audio.bg) + ', muted=' + this.isMuted);
                 return;
             }
             
-            this.attemptPlay();
+            // 确保音乐源已初始化
+            if(!this.musicSources || this.musicSources.length === 0) {
+                debugLog('初始化音乐源列表');
+                const basePath = 'audio/9439/';
+                const candidates = ['bg1.mp3', 'bg2.mp3', 'bg3.mp3', 'bg4.mp3', 'bg5.mp3'];
+                this.musicSources = candidates.map(n => basePath + n);
+            }
+            
+            debugLog('启动音乐播放列表，共 ' + this.musicSources.length + ' 首音乐');
+            this.currentMusicIndex = 0; // 从第一首开始
+            this.musicStarted = true;
+            
+            // 直接播放第一首音乐
+            this.playNextMusic();
         }
         
         attemptPlay() {
-            const bg = this.audio.bg;
-            
-            // 先尝试静音播放以绕过自动播放限制
-            bg.muted = true;
-            bg.volume = 0;
-            bg.play().then(() => {
-                this.musicStarted = true;
-                debugLog('背景音乐开始播放: ' + bg.src);
-                // 成功播放后，逐渐恢复音量并取消静音
-                let vol = 0;
-                const fadeIn = () => {
-                    if(this.isMuted) {
-                        bg.pause();
-                        return;
-                    }
-                    vol += 0.05;
-                    if(vol >= 0.85) {
-                        bg.volume = 0.85;
-                        bg.muted = false;
-                        debugLog('背景音乐音量已恢复');
-                    } else {
-                        bg.volume = vol;
-                        requestAnimationFrame(fadeIn);
-                    }
-                };
-                fadeIn();
-            }).catch((error) => {
-                debugLog('背景音乐自动播放失败: ' + error.message);
-                // 如果静音播放也失败，注册一次性用户交互事件
-                const startOnInteraction = () => {
-                    ['click', 'touchstart', 'keydown'].forEach(event => 
-                        document.removeEventListener(event, startOnInteraction)
-                    );
-                    this.musicStarted = false;
-                    this.startMusicPlaylist();
-                };
-                ['click', 'touchstart', 'keydown'].forEach(event => 
-                    document.addEventListener(event, startOnInteraction, {once: true})
-                );
-            });
+            // 这个方法已被简化，现在直接使用playNextMusic
+            if(!this.musicStarted) {
+                this.startMusicPlaylist();
+            }
         }
         ensureMusicPlaying(){
-            if(!this.audio||!this.audio.bg||this.isMuted) return;
-            if(this.audio.bg.paused){
-                this.audio.bg.volume=0.85;
-                this.audio.bg.play().catch(()=>{});
+            if(!this.audio || !this.audio.bg || this.isMuted) return;
+            
+            // 如果音乐暂停了，重新启动播放列表
+            if(this.audio.bg.paused && this.isPlaying) {
+                debugLog('检测到音乐暂停，重新启动');
+                if(!this.musicStarted) {
+                    this.startMusicPlaylist();
+                } else {
+                    this.playNextMusic();
+                }
             }
         }
-        play(name,vol=.6){ if(this.isMuted) return; 
-        if(name==='bg'){ this.startMusicPlaylist(); return; }
-        const a=this.audio[name];
-        if(!a) return;
-        try {
-            a.currentTime = 0;
-            if(name==='win') {
-                a.volume = 0.3;
-            } else {
-                a.volume = vol;
+        play(name,vol=.6){ 
+            if(this.isMuted) return; 
+            
+            if(name==='bg'){ 
+                if(!this.musicStarted) {
+                    this.startMusicPlaylist(); 
+                } else {
+                    this.ensureMusicPlaying();
+                }
+                return; 
             }
-            a.play().catch(()=>{});
-        } catch(e){}
+            
+            const a=this.audio[name];
+            if(!a) return;
+            try {
+                a.currentTime = 0;
+                if(name==='win') {
+                    a.volume = 0.3;
+                } else {
+                    a.volume = vol;
+                }
+                a.play().catch(()=>{});
+            } catch(e){}
         }
-        toggleMute(){ this.isMuted=!this.isMuted; const btn=document.getElementById('muteBtn'); if(btn) btn.textContent=this.isMuted?'🔇 解除静音':'🔊 静音'; if(this.isMuted){ Object.values(this.audio).forEach(a=>{try{a.pause();}catch(e){}}); } else { this.ensureMusicPlaying(); } }
+        toggleMute(){ 
+            this.isMuted = !this.isMuted; 
+            const btn = document.getElementById('muteBtn'); 
+            if(btn) btn.textContent = this.isMuted ? '🔇 解除静音' : '🔊 静音'; 
+            
+            if(this.isMuted){ 
+                // 静音时停止所有音频
+                Object.values(this.audio).forEach(a => {
+                    try { a.pause(); } catch(e) {}
+                });
+                debugLog('已静音');
+            } else { 
+                // 取消静音时恢复背景音乐
+                debugLog('取消静音，恢复音乐');
+                this.ensureMusicPlaying(); 
+            } 
+        }
         // ---------- 存档 ----------
         loadUnlocked(){try{const d=localStorage.getItem('match3_unlocked'); if(d) return JSON.parse(d);}catch(e){} return {1:true};}
         saveUnlocked(){try{localStorage.setItem('match3_unlocked',JSON.stringify(this.unlockedLevels));}catch(e){}}
