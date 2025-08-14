@@ -285,8 +285,46 @@
         }
 
         .tool-bar{margin-top:10px;display:flex;flex-wrap:wrap;gap:6px;justify-content:center;}
-        .tool-btn{padding:8px 14px;font-size:.9em;border-radius:25px;border:none;cursor:pointer;background:#444;color:#fff;transition:.25s;}
-        .tool-btn.active{background:#ff9800;box-shadow:0 0 10px #ff9800aa;}
+        /* 新的竖直排列按钮组样式 */
+        .control-buttons {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+            min-height: 0;
+            margin-top: 10px;
+            padding-bottom: 24px;
+            box-sizing: border-box;
+            justify-content: center;
+        }
+        .control-btn-group {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            gap: 28px;
+            align-items: center;
+        }
+        .control-buttons .btn {
+            width: 90%;
+            max-width: 240px;
+            min-height: 44px;
+            font-size: 1.18rem;
+            border-radius: 28px;
+            border: none;
+            background: linear-gradient(90deg, #ff7e7e 0%, #6ee7b7 100%);
+            color: #fff;
+            box-shadow: 0 3px 12px rgba(0,0,0,0.09);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto;
+            transition: background 0.3s, color 0.3s, opacity 0.3s;
+        }
+        .add-step-btn {
+            margin-top: auto;
+            margin-bottom: 0;
+        }
         .line-effect{position:absolute;left:0;top:0;pointer-events:none;}
 
         @media (max-width: 768px) {
@@ -300,6 +338,15 @@
             }
             .level-grid {
                 grid-template-columns: repeat(auto-fill, minmax(50px, 1fr));
+            }
+            .control-buttons {
+                width: 100%;
+                gap: 18px;
+                height: auto;
+            }
+            .control-buttons .btn {
+                width: 100%;
+                min-width: 120px;
             }
         }
     </style>
@@ -369,15 +416,15 @@
 
                 <div class="info-section">
                     <h3>🎮 控制</h3>
-                    <div style="text-align: center;">
-                        <button id="restartBtn" class="btn btn-primary">🔄 重启</button>
-                        <button id="backToLevelSelectBtn" class="btn btn-secondary">� 返回</button>
-                        <button id="muteBtn" class="btn btn-secondary">� 静音</button>
-                        <div class="tool-bar">
-                            <!-- 移除锤子，仅保留洗牌与彩虹一次性道具 -->
-                            <button id="toolShuffle" class="tool-btn" title="洗牌: 重新打乱棋盘">🔁 洗牌</button>
-                            <button id="toolColorBomb" class="tool-btn" title="一次性：将点击的宝石变成彩虹">🌈 变彩虹</button>
+                    <div class="control-buttons">
+                        <div class="control-btn-group">
+                            <button id="restartBtn" class="btn btn-primary">🔄 重启</button>
+                            <button id="backToLevelSelectBtn" class="btn btn-secondary">🏠 返回</button>
+                            <button id="muteBtn" class="btn btn-secondary">🔊 静音</button>
+                            <button id="toolShuffle" class="btn btn-secondary">🌀 洗牌</button>
+                            <button id="toolColorBomb" class="btn btn-secondary">🌈 变彩虹</button>
                         </div>
+                        <button id="addMovesBtn" class="btn btn-secondary add-step-btn">➕ 加步数</button>
                     </div>
                 </div>
             </div>
@@ -879,10 +926,31 @@
             q('muteBtn').onclick=()=>GameEngine.toggleMute(); 
             q('toolShuffle').onclick=()=>GameEngine.activateTool('shuffle'); 
             q('toolColorBomb').onclick=()=>GameEngine.activateTool('color'); 
-            
+            let addMovesUsed = false;
+            q('addMovesBtn').onclick=()=>{
+                if(GameEngine && GameEngine.isPlaying && !addMovesUsed) {
+                    const add = Math.floor(Math.random()*3)+3; // 3~5
+                    GameEngine.moves += add;
+                    GameEngine.updateUI();
+                    GameEngine.showTip('步数+'+add, 120, 120);
+                    addMovesUsed = true;
+                    q('addMovesBtn').disabled = true;
+                    q('addMovesBtn').style.opacity = '0.5';
+                }
+            };
+            // 每次开始新关卡时重置加步数按钮
+            const origStartLevel = GameEngine.startLevel.bind(GameEngine);
+            GameEngine.startLevel = function(id) {
+                addMovesUsed = false;
+                const btn = document.getElementById('addMovesBtn');
+                if(btn) {
+                    btn.disabled = false;
+                    btn.style.opacity = '1';
+                }
+                origStartLevel(id);
+            };
             // 页面加载完成后立即尝试启动音频和音乐
             debugLog('游戏初始化完成 - 音效已自动加载');
-            
             setTimeout(()=>{
                 const d=q('debugInfo'); 
                 if(d) d.style.display='none';
