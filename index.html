@@ -292,17 +292,17 @@
             height: 100%;
             min-height: 0;
             margin-top: 10px;
-            padding-bottom: 24px;
+            padding: 20px 0 30px;
             box-sizing: border-box;
-            justify-content: center;
         }
         .control-btn-group {
             flex: 1;
             display: flex;
             flex-direction: column;
-            justify-content: center;
-            gap: 28px;
+            justify-content: space-evenly;
             align-items: center;
+            width: 100%;
+            margin-bottom: 28px;
         }
         .control-buttons .btn {
             width: 90%;
@@ -318,12 +318,14 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            margin: 0 auto;
+            margin: 8px auto;
             transition: background 0.3s, color 0.3s, opacity 0.3s;
+            user-select: none;
         }
-        .add-step-btn {
-            margin-top: auto;
-            margin-bottom: 0;
+        .control-buttons .btn.orange-toggle {
+            background: linear-gradient(90deg, #ff9800 0%, #ff7e7e 100%) !important;
+            color: #fff3e0 !important;
+            box-shadow: 0 2px 12px rgba(255,152,0,0.18) !important;
         }
         .line-effect{position:absolute;left:0;top:0;pointer-events:none;}
 
@@ -423,8 +425,8 @@
                             <button id="muteBtn" class="btn btn-secondary">🔊 静音</button>
                             <button id="toolShuffle" class="btn btn-secondary">🌀 洗牌</button>
                             <button id="toolColorBomb" class="btn btn-secondary">🌈 变彩虹</button>
+                            <button id="addMovesBtn" class="btn btn-secondary add-step-btn">➕ 加步数</button>
                         </div>
-                        <button id="addMovesBtn" class="btn btn-secondary add-step-btn">➕ 加步数</button>
                     </div>
                 </div>
             </div>
@@ -445,6 +447,22 @@
     <audio id="loseSound" src="data:audio/mp3;base64,//uQxAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAACcQCA//////////////////////////////////////////8AAAAALGFuYwAAAA8AAAACAAACcQCA//////////////////////////////////////////8AAAAA" preload="auto" playsinline></audio>
 
     <script>
+    // 按钮点击高亮（变色）效果，兼容移动端
+    document.addEventListener('DOMContentLoaded', function() {
+        // 仅除返回、重启、洗牌外的按钮点击变橙色
+        var excludeIds = ['restartBtn', 'backToLevelSelectBtn', 'toolShuffle'];
+        document.querySelectorAll('.control-buttons .btn').forEach(function(btn){
+            if (excludeIds.includes(btn.id)) return;
+            btn.addEventListener('click', function(e){
+                document.querySelectorAll('.control-buttons .btn').forEach(function(otherBtn){
+                    if(otherBtn !== btn && !excludeIds.includes(otherBtn.id)) {
+                        otherBtn.classList.remove('orange-toggle');
+                    }
+                });
+                btn.classList.toggle('orange-toggle');
+            });
+        });
+    });
     // ================== 基础工具与全局 ==================
     let GameEngine = null;
 
@@ -525,19 +543,16 @@
                         debugLog('音乐结束，但游戏未在运行或已静音');
                         return;
                     }
-                    
-                    // 切换到下一首音乐
-                    this.currentMusicIndex = (this.currentMusicIndex + 1) % this.musicSources.length;
-                    debugLog('音乐播放完毕，切换到第 ' + (this.currentMusicIndex + 1) + ' 首');
-                    
-                    // 尝试播放下一首
+                    // 随机选择下一首
+                    this.currentMusicIndex = Math.floor(Math.random() * this.musicSources.length);
+                    debugLog('音乐播放完毕，随机切换到第 ' + (this.currentMusicIndex + 1) + ' 首');
                     this.playNextMusic();
                 });
                 
                 // 监听加载错误，自动跳到下一首
                 a.bg.addEventListener('error', () => {
-                    debugLog('音乐加载失败，跳到下一首');
-                    this.currentMusicIndex = (this.currentMusicIndex + 1) % this.musicSources.length;
+                    debugLog('音乐加载失败，随机跳到下一首');
+                    this.currentMusicIndex = Math.floor(Math.random() * this.musicSources.length);
                     this.playNextMusic();
                 });
             }
@@ -562,8 +577,8 @@
             }
             
             // 确保索引有效
-            if(this.currentMusicIndex >= this.musicSources.length) {
-                this.currentMusicIndex = 0;
+            if(this.currentMusicIndex >= this.musicSources.length || this.currentMusicIndex < 0) {
+                this.currentMusicIndex = Math.floor(Math.random() * this.musicSources.length);
             }
             
             const bg = this.audio.bg;
@@ -588,10 +603,10 @@
                 if(!this.isMuted && this.isPlaying) {
                     bg.volume = 0.85;
                     bg.play().catch((error) => {
-                        debugLog('音乐播放失败: ' + error.message + '，跳到下一首');
-                        // 播放失败时跳到下一首
+                        debugLog('音乐播放失败: ' + error.message + '，随机跳到下一首');
+                        // 播放失败时随机跳到下一首
                         setTimeout(() => {
-                            this.currentMusicIndex = (this.currentMusicIndex + 1) % this.musicSources.length;
+                            this.currentMusicIndex = Math.floor(Math.random() * this.musicSources.length);
                             this.playNextMusic();
                         }, 500);
                     });
@@ -631,10 +646,9 @@
             }
             
             debugLog('启动音乐播放列表，共 ' + this.musicSources.length + ' 首音乐');
-            this.currentMusicIndex = 0; // 从第一首开始
+            // 第一首也随机
+            this.currentMusicIndex = Math.floor(Math.random() * this.musicSources.length);
             this.musicStarted = true;
-            
-            // 直接播放第一首音乐
             this.playNextMusic();
         }
         
@@ -685,18 +699,17 @@
             this.isMuted = !this.isMuted; 
             const btn = document.getElementById('muteBtn'); 
             if(btn) btn.textContent = this.isMuted ? '🔇 解除静音' : '🔊 静音'; 
-            
-            if(this.isMuted){ 
-                // 静音时停止所有音频
-                Object.values(this.audio).forEach(a => {
-                    try { a.pause(); } catch(e) {}
-                });
-                debugLog('已静音');
-            } else { 
-                // 取消静音时恢复背景音乐
-                debugLog('取消静音，恢复音乐');
-                this.ensureMusicPlaying(); 
-            } 
+            // 只调整音量，不暂停/重播
+            if(this.audio && this.audio.bg) {
+                this.audio.bg.volume = this.isMuted ? 0 : 0.85;
+            }
+            // 其它音效也静音
+            ['pop','combo','win','lose'].forEach(k => {
+                if(this.audio && this.audio[k]) {
+                    this.audio[k].volume = this.isMuted ? 0 : 1;
+                }
+            });
+            debugLog(this.isMuted ? '已静音(仅音量)' : '取消静音(仅音量)');
         }
         // ---------- 存档 ----------
         loadUnlocked(){try{const d=localStorage.getItem('match3_unlocked'); if(d) return JSON.parse(d);}catch(e){} return {1:true};}
@@ -924,7 +937,14 @@
             q('restartBtn').onclick=()=>GameEngine.startLevel(GameEngine.levelId==='自由'?0:GameEngine.levelId); 
             q('backToLevelSelectBtn').onclick=()=>SimpleUI.showScreen('levelSelect'); 
             q('muteBtn').onclick=()=>GameEngine.toggleMute(); 
-            q('toolShuffle').onclick=()=>GameEngine.activateTool('shuffle'); 
+            q('toolShuffle').onclick=()=>{
+                if(GameEngine && GameEngine.isPlaying) {
+                    if(GameEngine.shuffleBoard()) {
+                        GameEngine.showTip('🔁 已洗牌', GameEngine.canvas.width/2, GameEngine.canvas.height/2);
+                        GameEngine.render();
+                    }
+                }
+            }; 
             q('toolColorBomb').onclick=()=>GameEngine.activateTool('color'); 
             let addMovesUsed = false;
             q('addMovesBtn').onclick=()=>{
@@ -959,6 +979,7 @@
             console.error(e); 
             showError('初始化失败:'+e.message);
         } 
+    
     }
     window.addEventListener('error',e=>debugLog('脚本错误: '+e.message)); window.addEventListener('unhandledrejection',e=>debugLog('Promise错误: '+e.reason));
 
