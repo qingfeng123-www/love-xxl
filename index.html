@@ -488,7 +488,31 @@
     function showError(message){ alert(message); }
 
     // ================== UI 控制 ==================
-    const SimpleUI={currentScreen:'mainMenu',showScreen(name){['mainMenu','levelSelect','gameScreen'].forEach(id=>{const el=document.getElementById(id); if(el) el.classList.add('hidden');}); const t=document.getElementById(name); if(t){t.classList.remove('hidden'); this.currentScreen=name; if(name==='levelSelect') this.createLevelGrid(); if(name==='gameScreen') this.initGameScreen();}},createLevelGrid(){const grid=document.getElementById('levelGrid'); if(!grid) return; grid.innerHTML=''; for(let i=1;i<=100;i++){const btn=document.createElement('button'); btn.className='level-btn'; btn.textContent=i; btn.onclick=()=>this.startLevel(i); if(GameEngine){ const completed=GameEngine.getCompletedLevels(); if(completed[i]) btn.classList.add('completed'); } grid.appendChild(btn);} },startLevel(id){this.showScreen('gameScreen'); if(GameEngine) GameEngine.startLevel(id);},initGameScreen(){setTimeout(()=>{ if(GameEngine){ GameEngine.initCanvas(); GameEngine.render();}},80);}};
+    const SimpleUI={currentScreen:'mainMenu',showScreen(name){
+        // 隐藏所有屏幕
+        ['mainMenu','levelSelect','gameScreen'].forEach(id=>{
+            const el=document.getElementById(id); 
+            if(el) el.classList.add('hidden');
+        }); 
+        
+        // 显示指定屏幕
+        const t=document.getElementById(name); 
+        if(t){
+            t.classList.remove('hidden'); 
+            this.currentScreen=name; 
+            
+            // 当显示游戏屏幕时，重置所有按钮状态
+            if(name==='gameScreen') {
+                // 清除所有控制按钮的橙色高亮
+                document.querySelectorAll('.control-buttons .btn').forEach(button => {
+                    button.classList.remove('orange-toggle');
+                });
+                this.initGameScreen();
+            }
+            
+            if(name==='levelSelect') this.createLevelGrid();
+        }
+    },createLevelGrid(){const grid=document.getElementById('levelGrid'); if(!grid) return; grid.innerHTML=''; for(let i=1;i<=100;i++){const btn=document.createElement('button'); btn.className='level-btn'; btn.textContent=i; btn.onclick=()=>this.startLevel(i); if(GameEngine){ const completed=GameEngine.getCompletedLevels(); if(completed[i]) btn.classList.add('completed'); } grid.appendChild(btn);} },startLevel(id){this.showScreen('gameScreen'); if(GameEngine) GameEngine.startLevel(id);},initGameScreen(){setTimeout(()=>{ if(GameEngine){ GameEngine.initCanvas(); GameEngine.render();}},80);}};
 
     // ================== 游戏引擎（单一有效版本） ==================
     class SimpleGameEngine {
@@ -734,8 +758,75 @@
         setThemeColor(id){
             // 保持背景为image.jpg，不做任何更改
         }
-        levelConfig(id){const target=400+(id-1)*120+Math.floor((id-1)/10)*200; const moves=Math.max(15,this.baseMoves-Math.floor((id-1)/5)); return {target,moves}; }
-        startLevel(id){ if(!this.initCanvas()) return; if(id!==0 && !this.unlockedLevels[id]){alert('未解锁'); return;} this.levelId=id===0?'自由':id; const cfg=id===0?{target:0,moves:9999}:this.levelConfig(id); if(id!==0){ this.gemTypes=Math.min(3+Math.floor((id-1)/8),this.allColors.length); this.gemColors=this.allColors.slice(0,this.gemTypes);} this.targetScore=cfg.target; this.moves=cfg.moves; this.score=0; this.selectedGem=null; this.isPlaying=true; this.currentChain=0; this.effects=[]; this.currentTool=null; this.colorToolAvailable=true; const btn=document.getElementById('toolColorBomb'); if(btn){btn.disabled=false; btn.style.opacity='1'; btn.classList.remove('active');} this.generateInitialGrid(); this.placeObstacles(); this.updateObjectiveUI(); this.updateUI(); this.setThemeColor(id===0?1:id); 
+        levelConfig(id){
+            // 基础目标分数，整体提高难度
+            let target = 500; // 基础分提高
+            
+            if(id <= 20) {
+                // 前20关，线性增长且更快
+                target += (id-1)*150 + Math.floor((id-1)/8)*220;
+            } else if(id <= 50) {
+                // 21-50关，增长变缓但仍有挑战
+                const base = 500 + 19*150 + Math.floor(19/8)*220; // 前20关的最终目标
+                target = base + (id-20)*120 + Math.floor((id-20)/4)*150;
+            } else {
+                // 50关以后，更缓慢增长但总体难度增加
+                const base50 = 500 + 19*150 + Math.floor(19/8)*220 + 30*120 + Math.floor(30/4)*150; // 50关的目标
+                target = base50 + (id-50)*100 + Math.floor((id-50)/8)*130;
+            }
+            
+            // 步数调整，整体减少步数提高难度
+            let moves = this.baseMoves;
+            
+            if(id <= 30) {
+                // 前30关，更快减少步数
+                moves = Math.max(14, this.baseMoves - Math.floor((id-1)/5)); // 降低最低步数限制
+            } else if(id <= 60) {
+                // 30-60关，步数小幅增加
+                const base30 = Math.max(14, this.baseMoves - Math.floor((30-1)/5)); // 30关的步数
+                moves = base30 + Math.floor((id-30)/7); // 减缓增长速度
+                moves = Math.min(moves, this.baseMoves + 4); // 降低上限
+            } else {
+                // 60关以后，步数保持稳定，不再增加
+                const base60 = Math.max(14, this.baseMoves - Math.floor((30-1)/5)) + Math.floor((60-30)/7);
+                moves = Math.min(base60, this.baseMoves + 4);
+            }
+            
+            return {target, moves}; 
+        }
+        startLevel(id){ if(!this.initCanvas()) return; if(id!==0 && !this.unlockedLevels[id]){alert('未解锁'); return;} this.levelId=id===0?'自由':id; const cfg=id===0?{target:0,moves:9999}:this.levelConfig(id); 
+            
+            // 调整宝石类型数量，更早更快地增加宝石种类
+            if(id!==0) {
+                if(id <= 15) {
+                    // 前15关，更快增加种类
+                    this.gemTypes = Math.min(3 + Math.floor((id-1)/6), this.allColors.length);
+                } else if(id <= 40) {
+                    // 16-40关，加速增加种类
+                    this.gemTypes = Math.min(5 + Math.floor((id-16)/8), this.allColors.length);
+                } else {
+                    // 40关以后，可能达到最多种类
+                    this.gemTypes = Math.min(7 + Math.floor((id-41)/15), this.allColors.length);
+                }
+                this.gemColors = this.allColors.slice(0, this.gemTypes);
+            } 
+            
+            this.targetScore=cfg.target; this.moves=cfg.moves; this.score=0; this.selectedGem=null; this.isPlaying=true; this.currentChain=0; this.effects=[]; this.currentTool=null; this.colorToolAvailable=true; 
+            
+            // 重置彩虹按钮状态
+            const btn=document.getElementById('toolColorBomb'); 
+            if(btn){
+                btn.disabled=false; 
+                btn.style.opacity='1'; 
+                btn.classList.remove('active');
+            }
+            
+            // 清除所有控制按钮的橙色高亮
+            document.querySelectorAll('.control-buttons .btn').forEach(button => {
+                button.classList.remove('orange-toggle');
+            });
+            
+            this.generateInitialGrid(); this.placeObstacles(); this.updateObjectiveUI(); this.updateUI(); this.setThemeColor(id===0?1:id); 
         
         // 强制启动音乐（如果还没有启动的话）
         if(!this.musicStarted) {
@@ -748,13 +839,134 @@
         this.ensureAudioUnlock(); }
         updateObjectiveUI(){const l=document.getElementById('currentLevel'); const o=document.getElementById('objective'); if(l) l.textContent=this.levelId; if(o) o.textContent=this.levelId==='自由'? '自由模式：无限分数':'目标分数: '+this.targetScore;}
         // ---------- 棋盘生成 ----------
-        generateInitialGrid(){this.grid=[]; for(let y=0;y<this.gridRows;y++){this.grid[y]=[]; for(let x=0;x<this.gridCols;x++){let t; do{t=Math.floor(Math.random()*this.gemTypes);}while(this.causesImmediateMatch(x,y,t)); this.grid[y][x]={type:t,x,y,special:null};}}}
-        causesImmediateMatch(x,y,t){ if(x>=2 && this.grid[y][x-1] && this.grid[y][x-2] && this.grid[y][x-1].type===t && this.grid[y][x-2].type===t) return true; if(y>=2 && this.grid[y-1] && this.grid[y-2] && this.grid[y-1][x] && this.grid[y-2][x].type===t && this.grid[y-1][x].type===t) return true; return false; }
-        placeObstacles(){ if(this.levelId==='自由') return; const iceProb=Math.min(0.03+(this.levelId-1)*0.003,0.25); for(let y=0;y<this.gridRows;y++) for(let x=0;x<this.gridCols;x++){ if(Math.random()<iceProb){ const g=this.grid[y][x]; if(g) g.locked=1; }} }
+        generateInitialGrid(){
+            this.grid = [];
+            
+            // 确定关卡难度级别
+            const level = typeof this.levelId === 'number' ? this.levelId : 1;
+            
+            // 在高级关卡中有机会生成特效宝石和四连、五连
+            const highLevelBoost = this.levelId !== '自由' && level > 20;
+            
+            // 有机会生成连续的宝石以形成可能的消除组合（概率降低）
+            const matchChance = highLevelBoost ? Math.min(0.04 + (level * 0.002), 0.12) : 0.02;
+            
+            // 初始特效宝石概率（大幅降低）
+            const initialSpecialChance = highLevelBoost ? Math.min(0.003 + (level * 0.0005), 0.03) : 0.005;
+            
+            for(let y=0; y<this.gridRows; y++){
+                this.grid[y] = []; 
+                
+                for(let x=0; x<this.gridCols; x++){
+                    let t;
+                    let special = null;
+                    
+                    // 有机率生成可匹配的图案
+                    if(Math.random() < matchChance && (x < this.gridCols-2 || y < this.gridRows-2)) {
+                        if(x < this.gridCols-3 && Math.random() < 0.5) {
+                            // 水平四连
+                            t = Math.floor(Math.random()*this.gemTypes);
+                            for(let i=0; i<3; i++) {
+                                if(x+i < this.gridCols && !this.grid[y][x+i]) {
+                                    this.grid[y][x+i] = {type: t, x: x+i, y: y, special: null};
+                                }
+                            }
+                        } else if(y < this.gridRows-3 && Math.random() < 0.5) {
+                            // 垂直四连
+                            t = Math.floor(Math.random()*this.gemTypes);
+                            for(let i=0; i<3; i++) {
+                                if(y+i < this.gridRows && !this.grid[y+i]) {
+                                    this.grid[y+i] = [];
+                                }
+                                if(y+i < this.gridRows && !this.grid[y+i][x]) {
+                                    this.grid[y+i][x] = {type: t, x: x, y: y+i, special: null};
+                                }
+                            }
+                        }
+                    }
+                    
+                    // 如果格子还没有被填充，正常生成
+                    if(!this.grid[y][x]) {
+                        // 避免生成会立即消除的组合
+                        do {
+                            t = Math.floor(Math.random()*this.gemTypes);
+                        } while(this.causesImmediateMatch(x,y,t));
+                        
+                        // 有机会生成特效宝石
+                        if(Math.random() < initialSpecialChance) {
+                            const specialTypes = ['lineH', 'lineV', 'bomb'];
+                            if(Math.random() < 0.05) specialTypes.push('color');
+                            special = specialTypes[Math.floor(Math.random() * specialTypes.length)];
+                        }
+                        
+                        this.grid[y][x] = {type: t, x, y, special};
+                    }
+                }
+            }
+        }
+        
+        causesImmediateMatch(x,y,t){ 
+            // 水平检查：至少左侧需要两个相同的才算匹配
+            if(x>=2 && this.grid[y][x-1] && this.grid[y][x-2] && 
+               this.grid[y][x-1].type===t && this.grid[y][x-2].type===t) return true; 
+            
+            // 垂直检查：至少上方需要两个相同的才算匹配
+            if(y>=2 && this.grid[y-1] && this.grid[y-2] && this.grid[y-1][x] && 
+               this.grid[y-2][x] && this.grid[y-1][x].type===t && this.grid[y-2][x].type===t) return true; 
+            
+            return false; 
+        }
+        placeObstacles(){ 
+            if(this.levelId==='自由') return; 
+            
+            // 提高冰块概率，更早达到高概率
+            const level = typeof this.levelId === 'number' ? this.levelId : 1;
+            
+            // 基础概率提升，增长速度加快，最高上限也提高
+            let iceProb;
+            
+            if(level <= 20) {
+                // 前20关，快速增长
+                iceProb = Math.min(0.04 + (level-1)*0.005, 0.3);
+            } else if(level <= 50) {
+                // 21-50关，继续增长但较慢
+                iceProb = Math.min(0.3 + (level-20)*0.003, 0.38);
+            } else {
+                // 50关以后，缓慢增长到最大值
+                iceProb = Math.min(0.38 + (level-50)*0.001, 0.42); // 最高42%的格子会被冰冻
+            }
+            
+            // 让冰块分布更不均匀，有时会集中在某些区域
+            for(let y=0; y<this.gridRows; y++) {
+                for(let x=0; x<this.gridCols; x++) {
+                    // 基础概率加上位置因素（边缘位置更容易有冰块）
+                    const edgeFactor = (x === 0 || x === this.gridCols-1 || y === 0 || y === this.gridRows-1) ? 0.05 : 0;
+                    
+                    if(Math.random() < (iceProb + edgeFactor)) {
+                        const g = this.grid[y][x];
+                        if(g) g.locked = 1;
+                    }
+                }
+            }
+        }
         // ---------- 输入 ----------
         handleClick(e){ if(!this.isPlaying||this.animating) return; const r=this.canvas.getBoundingClientRect(); const x=Math.floor((e.clientX-r.left)/this.tileSize); const y=Math.floor((e.clientY-r.top)/this.tileSize); if(x<0||x>=this.gridCols||y<0||y>=this.gridRows) return; if(this.currentTool){ this.useTool(x,y); return;} const cell=this.grid[y][x]; if(cell&&cell.locked){ this.showTip('🔒 被冰封',(x+0.5)*this.tileSize,(y+0.5)*this.tileSize); return;} if(!this.selectedGem){ this.selectedGem={x,y}; } else { if(this.selectedGem.x===x&&this.selectedGem.y===y) this.selectedGem=null; else if(this.isAdjacent(this.selectedGem,{x,y})){ this.attemptSwap(this.selectedGem,{x,y}); this.selectedGem=null;} else this.selectedGem={x,y}; } }
         // ---------- 道具 ----------
-        activateTool(n){ if(this.animating) return; this.currentTool=this.currentTool===n?null:n; this.highlightTools(); }
+        activateTool(n){ 
+            if(this.animating) return; 
+            this.currentTool=this.currentTool===n?null:n; 
+            
+            // 当工具改变时，清除所有橙色高亮
+            if(this.currentTool === null) {
+                document.querySelectorAll('.control-buttons .btn').forEach(button => {
+                    if(button.id !== 'toolShuffle' && button.id !== 'toolColorBomb') {
+                        button.classList.remove('orange-toggle');
+                    }
+                });
+            }
+            
+            this.highlightTools(); 
+        }
         highlightTools(){const map={toolShuffle:'shuffle',toolColorBomb:'color'}; Object.keys(map).forEach(id=>{const el=document.getElementById(id); if(!el) return; if(this.currentTool===map[id]) el.classList.add('active'); else el.classList.remove('active');});}
         useTool(x,y){const t=this.currentTool; const cell=this.grid[y][x]; if(t==='color'){ if(!this.colorToolAvailable){ this.showTip('🚫 已使用',(x+0.5)*this.tileSize,(y+0.5)*this.tileSize); } else if(cell && !cell.obstacle){ cell.special='color'; this.colorToolAvailable=false; const b=document.getElementById('toolColorBomb'); if(b){b.disabled=true; b.style.opacity='.45'; b.classList.remove('active');} this.showTip('🌈',(x+0.5)*this.tileSize,(y+0.5)*this.tileSize);} } else if(t==='shuffle'){ if(this.shuffleBoard()) this.showTip('🔁 已洗牌',this.canvas.width/2,this.canvas.height/2);} this.currentTool=null; this.highlightTools(); }
         // ---------- 核心逻辑 ----------
@@ -920,7 +1132,27 @@
                     }
                 }
             }
-            for(let y=0;y<this.gridRows;y++) for(let x=0;x<this.gridCols;x++) if(this.grid[y][x]==null) this.grid[y][x]={type:Math.floor(Math.random()*this.gemTypes),x,y,special:null};
+            for(let y=0;y<this.gridRows;y++) for(let x=0;x<this.gridCols;x++) {
+                if(this.grid[y][x]==null) {
+                    // 基础类型
+                    const type = Math.floor(Math.random()*this.gemTypes);
+                    
+                    // 根据关卡难度增加特效宝石概率 (普通关卡越高概率越高，自由模式固定低概率)
+                    let special = null;
+                    const level = typeof this.levelId === 'number' ? this.levelId : 1;
+                    const specialChance = this.levelId === '自由' ? 0.01 : Math.min(0.005 + (level * 0.0015), 0.06);
+                    
+                    if(Math.random() < specialChance) {
+                        // 随机选择一种特效: 横线/竖线/炸弹/彩虹
+                        const specialTypes = ['lineH', 'lineV', 'bomb'];
+                        // 彩虹宝石非常强力，概率降低
+                        if(Math.random() < 0.03) specialTypes.push('color');
+                        special = specialTypes[Math.floor(Math.random() * specialTypes.length)];
+                    }
+                    
+                    this.grid[y][x] = {type, x, y, special};
+                }
+            };
             const newGroups=this.findMatches();
             if(newGroups.length>0){ setTimeout(()=>this.processMatches(newGroups,chain+1),220);} else { this.animating=false; setTimeout(()=>{this.currentChain=0; this.updateUI();},500); this.ensureMoves(); this.postMoveCheck(); }
         }
